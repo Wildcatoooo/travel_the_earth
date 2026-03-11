@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
-import { Menu, Share, Search, Plus, Minus, LocateFixed, Map, Book, PieChart, User, X, Calendar, Thermometer, Footprints, Camera, FileEdit, ArrowRight } from 'lucide-react';
+import { Menu, Share, Search, Plus, Minus, LocateFixed, Map, Book, PieChart, User, X, Calendar, Thermometer, Footprints, Camera, FileEdit, ArrowRight, Battery, BatteryCharging } from 'lucide-react';
 import Globe from 'react-globe.gl';
 import * as THREE from 'three';
 import { geoCentroid } from 'd3-geo';
@@ -47,6 +47,17 @@ const getFlagEmoji = (countryCode: string) => {
   return String.fromCodePoint(...codePoints);
 };
 
+const VISITED_COUNTRIES = ['CN', 'JP', 'FR'];
+const TRAVEL_ROUTES = [
+  { startLat: 39.9042, startLng: 116.4074, endLat: 35.6762, endLng: 139.6503, name: '北京 -> 东京' },
+  { startLat: 35.6762, startLng: 139.6503, endLat: 48.8566, endLng: 2.3522, name: '东京 -> 巴黎' }
+];
+const VISITED_CITIES = [
+  { lat: 39.9042, lng: 116.4074, name: '北京', date: '2023-05-01', image: 'https://picsum.photos/seed/beijing/100/100' },
+  { lat: 35.6762, lng: 139.6503, name: '东京', date: '2023-08-15', image: 'https://picsum.photos/seed/tokyo/100/100' },
+  { lat: 48.8566, lng: 2.3522, name: '巴黎', date: '2024-02-10', image: 'https://picsum.photos/seed/paris/100/100' }
+];
+
 interface MapScreenProps {
   onNavigate: (screen: string) => void;
 }
@@ -60,6 +71,7 @@ export default function MapScreen({ onNavigate }: MapScreenProps) {
   const [countryLabels, setCountryLabels] = useState<any[]>([]);
   const [focusedCountryCities, setFocusedCountryCities] = useState<any[]>([]);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+  const [powerSaving, setPowerSaving] = useState(false);
   
   const containerRef = useRef<HTMLDivElement>(null);
   const globeRef = useRef<any>();
@@ -186,15 +198,30 @@ export default function MapScreen({ onNavigate }: MapScreenProps) {
                 width={dimensions.width}
                 height={dimensions.height}
                 globeImageUrl="//unpkg.com/three-globe/example/img/earth-blue-marble.jpg"
-                bumpImageUrl="//unpkg.com/three-globe/example/img/earth-topology.png"
+                bumpImageUrl={powerSaving ? "" : "//unpkg.com/three-globe/example/img/earth-topology.png"}
                 polygonsData={countries.features}
-                polygonAltitude={0.005}
-                polygonCapColor={() => 'rgba(0, 0, 0, 0)'}
-                polygonSideColor={() => 'rgba(0, 0, 0, 0)'}
-                polygonStrokeColor={() => 'rgba(255, 255, 255, 0.3)'}
-                showAtmosphere={true}
+                polygonAltitude={(d: any) => VISITED_COUNTRIES.includes(d.properties.ISO_A2) ? 0.015 : 0.005}
+                polygonCapColor={(d: any) => VISITED_COUNTRIES.includes(d.properties.ISO_A2) ? 'rgba(251, 191, 36, 0.25)' : 'rgba(0, 0, 0, 0)'}
+                polygonSideColor={(d: any) => VISITED_COUNTRIES.includes(d.properties.ISO_A2) ? 'rgba(251, 191, 36, 0.1)' : 'rgba(0, 0, 0, 0)'}
+                polygonStrokeColor={() => '#ff3b30'}
+                showAtmosphere={!powerSaving}
                 atmosphereColor="#38bdf8"
                 atmosphereAltitude={0.15}
+                arcsData={TRAVEL_ROUTES}
+                arcStartLat={(d: any) => d.startLat}
+                arcStartLng={(d: any) => d.startLng}
+                arcEndLat={(d: any) => d.endLat}
+                arcEndLng={(d: any) => d.endLng}
+                arcColor={() => '#fbbf24'}
+                arcDashLength={0.4}
+                arcDashGap={0.2}
+                arcDashAnimateTime={2000}
+                arcAltitudeAutoScale={0.3}
+                ringsData={VISITED_CITIES}
+                ringColor={() => '#fbbf24'}
+                ringMaxRadius={2}
+                ringPropagationSpeed={1}
+                ringRepeatPeriod={1000}
                 onPolygonClick={handlePolygonClick}
                 onGlobeClick={handleGlobeClick}
                 onZoom={({ altitude }: any) => {
@@ -213,17 +240,36 @@ export default function MapScreen({ onNavigate }: MapScreenProps) {
                 labelDotRadius={0.2}
                 labelColor={() => 'rgba(255, 255, 255, 0.95)'}
                 labelResolution={2}
-                htmlElementsData={zoomLevel !== 'global' ? focusedCountryCities : []}
+                htmlElementsData={
+                  zoomLevel === 'global' 
+                    ? [...VISITED_CITIES.map(c => ({ ...c, isPhoto: true }))]
+                    : [...focusedCountryCities, ...VISITED_CITIES.map(c => ({ ...c, isPhoto: true }))]
+                }
                 htmlElement={(d: any) => {
                   const el = document.createElement('div');
-                  el.innerHTML = `
-                    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; transform: translate(-50%, -50%); pointer-events: none; transition: all 0.3s;">
-                      <span style="font-size: 11px; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); padding: 2px 6px; border-radius: 6px; color: rgba(255,255,255,0.95); border: 1px solid rgba(255,255,255,0.2); white-space: nowrap; box-shadow: 0 4px 6px rgba(0,0,0,0.3); display: flex; align-items: center; gap: 4px; font-family: serif; letter-spacing: 0.05em;">
-                        <span>${d.name}</span>
-                      </span>
-                      <div style="width: 6px; height: 6px; background: #fbbf24; border-radius: 50%; margin-top: 4px; box-shadow: 0 0 10px rgba(251,191,36,0.8); border: 1px solid rgba(255,255,255,0.8);"></div>
-                    </div>
-                  `;
+                  if (d.isPhoto) {
+                    el.innerHTML = `
+                      <div style="transform: translate(-50%, -100%); pointer-events: auto; cursor: pointer; transition: all 0.3s;" class="hover:scale-110 group">
+                        <div style="background: rgba(255,255,255,0.9); backdrop-filter: blur(4px); padding: 3px; border-radius: 8px; box-shadow: 0 8px 20px rgba(0,0,0,0.4); position: relative; border: 2px solid #fbbf24;">
+                          <img src="${d.image}" style="width: 36px; height: 36px; border-radius: 4px; object-fit: cover;" referrerPolicy="no-referrer" />
+                          <div style="position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 6px solid #fbbf24;"></div>
+                        </div>
+                      </div>
+                    `;
+                    el.onclick = () => {
+                      handleGlobeClick({ lat: d.lat, lng: d.lng });
+                      setTimeout(() => setShowCapsule(true), 1000);
+                    };
+                  } else {
+                    el.innerHTML = `
+                      <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; transform: translate(-50%, -50%); pointer-events: none; transition: all 0.3s;">
+                        <span style="font-size: 11px; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); padding: 2px 6px; border-radius: 6px; color: rgba(255,255,255,0.95); border: 1px solid rgba(255,255,255,0.2); white-space: nowrap; box-shadow: 0 4px 6px rgba(0,0,0,0.3); display: flex; align-items: center; gap: 4px; font-family: serif; letter-spacing: 0.05em;">
+                          <span>${d.name}</span>
+                        </span>
+                        <div style="width: 6px; height: 6px; background: #fbbf24; border-radius: 50%; margin-top: 4px; box-shadow: 0 0 10px rgba(251,191,36,0.8); border: 1px solid rgba(255,255,255,0.8);"></div>
+                      </div>
+                    `;
+                  }
                   return el;
                 }}
                 backgroundColor="rgba(0,0,0,0)"
@@ -264,6 +310,13 @@ export default function MapScreen({ onNavigate }: MapScreenProps) {
               <Minus className="w-6 h-6" />
             </button>
           </div>
+          <button 
+            onClick={() => setPowerSaving(!powerSaving)}
+            className={`glass-panel pointer-events-auto w-12 h-12 rounded-xl flex items-center justify-center shadow-lg transition-colors ${powerSaving ? 'text-green-500 bg-green-50/80 dark:bg-green-900/30' : 'text-slate-700 dark:text-slate-200 hover:bg-white/50 dark:hover:bg-slate-700/50'}`}
+            title="省电模式"
+          >
+            {powerSaving ? <Battery className="w-6 h-6" /> : <BatteryCharging className="w-6 h-6" />}
+          </button>
           <button className="glass-panel pointer-events-auto w-12 h-12 rounded-xl flex items-center justify-center text-primary shadow-lg hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors">
             <LocateFixed className="w-6 h-6" />
           </button>
