@@ -2,6 +2,50 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import { Menu, Share, Search, Plus, Minus, LocateFixed, Map, Book, PieChart, User, X, Calendar, Thermometer, Footprints, Camera, FileEdit, ArrowRight } from 'lucide-react';
 import Globe from 'react-globe.gl';
 import * as THREE from 'three';
+import { geoCentroid } from 'd3-geo';
+
+// Local Database Cache implementation using Browser Cache API
+const fetchWithCache = async (url: string) => {
+  try {
+    const cache = await caches.open('globe-offline-data');
+    const cachedResponse = await cache.match(url);
+    
+    if (cachedResponse) {
+      console.log('Loaded from local cache:', url);
+      return cachedResponse.json();
+    }
+
+    console.log('Fetching from network and caching:', url);
+    const response = await fetch(url);
+    if (response.ok) {
+      await cache.put(url, response.clone());
+    }
+    return response.json();
+  } catch (error) {
+    console.error('Cache fetch failed, falling back to network', error);
+    const res = await fetch(url);
+    return res.json();
+  }
+};
+
+const getCountryName = (isoA2: string, defaultName: string) => {
+  try {
+    if (!isoA2 || isoA2 === '-99') return defaultName;
+    const regionNames = new Intl.DisplayNames(['zh-CN'], { type: 'region' });
+    return regionNames.of(isoA2) || defaultName;
+  } catch (e) {
+    return defaultName;
+  }
+};
+
+const getFlagEmoji = (countryCode: string) => {
+  if (!countryCode || countryCode === '-99') return '🏳️';
+  const codePoints = countryCode
+    .toUpperCase()
+    .split('')
+    .map(char =>  127397 + char.charCodeAt(0));
+  return String.fromCodePoint(...codePoints);
+};
 
 interface MapScreenProps {
   onNavigate: (screen: string) => void;
@@ -12,23 +56,35 @@ export default function MapScreen({ onNavigate }: MapScreenProps) {
   const [viewMode, setViewMode] = useState<'2d' | '3d'>('3d');
   const [zoomLevel, setZoomLevel] = useState<'global' | 'country' | 'city'>('global');
   const [countries, setCountries] = useState({ features: [] });
+  const [allCities, setAllCities] = useState<any[]>([]);
+  const [countryLabels, setCountryLabels] = useState<any[]>([]);
+  const [focusedCountryCities, setFocusedCountryCities] = useState<any[]>([]);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   
   const containerRef = useRef<HTMLDivElement>(null);
   const globeRef = useRef<any>();
 
-  const globeMaterial = useMemo(() => {
-    return new THREE.MeshPhongMaterial({
-      color: '#020617', // Ocean color (very dark slate)
-      transparent: true,
-      opacity: 0.95,
-    });
-  }, []);
-
   useEffect(() => {
-    fetch('https://raw.githubusercontent.com/vasturiano/react-globe.gl/master/example/datasets/ne_110m_admin_0_countries.geojson')
-      .then(res => res.json())
-      .then(setCountries);
+    Promise.all([
+      fetchWithCache('https://raw.githubusercontent.com/vasturiano/react-globe.gl/master/example/datasets/ne_110m_admin_0_countries.geojson'),
+      fetchWithCache('https://raw.githubusercontent.com/vasturiano/react-globe.gl/master/example/datasets/ne_110m_populated_places_simple.geojson')
+    ]).then(([countriesData, citiesData]) => {
+      setCountries(countriesData);
+      setAllCities(citiesData.features);
+
+      const labels = countriesData.features.map((feat: any) => {
+        const [lng, lat] = geoCentroid(feat);
+        const iso = feat.properties.ISO_A2;
+        return {
+          lat,
+          lng,
+          name: getCountryName(iso, feat.properties.NAME),
+          flag: getFlagEmoji(iso),
+          iso: iso
+        };
+      });
+      setCountryLabels(labels);
+    });
   }, []);
 
   useEffect(() => {
@@ -67,36 +123,24 @@ export default function MapScreen({ onNavigate }: MapScreenProps) {
       globeRef.current.pointOfView({ lat, lng, altitude: 2.5 }, 1000);
       setZoomLevel('global');
       setShowCapsule(false);
+      setFocusedCountryCities([]);
     }
   };
 
   const handlePolygonClick = (polygon: any, event: any, { lat, lng }: any) => {
-    handleGlobeClick({ lat, lng });
+    const iso = polygon.properties.ISO_A2;
+    const countryCities = allCities.filter(c => c.properties.iso_a2 === iso).map(c => ({
+      lat: c.geometry.coordinates[1],
+      lng: c.geometry.coordinates[0],
+      name: c.properties.name,
+      isCity: true
+    }));
+    setFocusedCountryCities(countryCities);
+
+    const [cLng, cLat] = geoCentroid(polygon);
+    globeRef.current.pointOfView({ lat: cLat, lng: cLng, altitude: 0.8 }, 1000);
+    setZoomLevel('country');
   };
-
-  const countriesList = [
-    { lat: 35.8617, lng: 104.1954, name: '中国', flag: '🇨🇳' },
-    { lat: 36.2048, lng: 138.2529, name: '日本', flag: '🇯🇵' },
-    { lat: 46.2276, lng: 2.2137, name: '法国', flag: '🇫🇷' },
-    { lat: 37.0902, lng: -95.7129, name: '美国', flag: '🇺🇸' },
-    { lat: 55.3781, lng: -3.4360, name: '英国', flag: '🇬🇧' },
-    { lat: -25.2744, lng: 133.7751, name: '澳大利亚', flag: '🇦🇺' },
-    { lat: 56.1304, lng: -106.3468, name: '加拿大', flag: '🇨🇦' },
-    { lat: -14.2350, lng: -51.9253, name: '巴西', flag: '🇧🇷' },
-  ];
-
-  const citiesList = [
-    { lat: 39.9042, lng: 116.4074, name: '北京', isCity: true },
-    { lat: 31.2304, lng: 121.4737, name: '上海', isCity: true },
-    { lat: 35.6762, lng: 139.6503, name: '东京', isCity: true },
-    { lat: 34.6937, lng: 135.5023, name: '大阪', isCity: true },
-    { lat: 48.8566, lng: 2.3522, name: '巴黎', isCity: true },
-    { lat: 43.2965, lng: 5.3698, name: '马赛', isCity: true },
-    { lat: 40.7128, lng: -74.0060, name: '纽约', isCity: true },
-    { lat: 34.0522, lng: -118.2437, name: '洛杉矶', isCity: true },
-    { lat: 51.5074, lng: -0.1278, name: '伦敦', isCity: true },
-    { lat: -33.8688, lng: 151.2093, name: '悉尼', isCity: true },
-  ];
 
   return (
     <div className="bg-background-light dark:bg-background-dark text-slate-900 dark:text-slate-100 font-serif min-h-screen flex flex-col overflow-hidden max-w-md mx-auto shadow-2xl relative">
@@ -135,38 +179,49 @@ export default function MapScreen({ onNavigate }: MapScreenProps) {
             </div>
           </>
         ) : (
-          <div className="absolute inset-0 w-full h-full bg-[#0a0e14]">
+          <div className="absolute inset-0 w-full h-full bg-[#050505]">
             {dimensions.width > 0 && (
               <Globe
                 ref={globeRef}
                 width={dimensions.width}
                 height={dimensions.height}
-                globeMaterial={globeMaterial}
+                globeImageUrl="//unpkg.com/three-globe/example/img/earth-blue-marble.jpg"
+                bumpImageUrl="//unpkg.com/three-globe/example/img/earth-topology.png"
                 polygonsData={countries.features}
-                polygonAltitude={0.01}
-                polygonCapColor={() => '#1e293b'}
-                polygonSideColor={() => 'rgba(30, 41, 59, 0.5)'}
-                polygonStrokeColor={() => '#38bdf8'}
+                polygonAltitude={0.005}
+                polygonCapColor={() => 'rgba(0, 0, 0, 0)'}
+                polygonSideColor={() => 'rgba(0, 0, 0, 0)'}
+                polygonStrokeColor={() => 'rgba(255, 255, 255, 0.3)'}
                 showAtmosphere={true}
                 atmosphereColor="#38bdf8"
                 atmosphereAltitude={0.15}
                 onPolygonClick={handlePolygonClick}
                 onGlobeClick={handleGlobeClick}
                 onZoom={({ altitude }: any) => {
-                  if (altitude > 1.2 && zoomLevel !== 'global') setZoomLevel('global');
+                  if (altitude > 1.2 && zoomLevel !== 'global') {
+                    setZoomLevel('global');
+                    setFocusedCountryCities([]);
+                  }
                   else if (altitude <= 1.2 && altitude > 0.4 && zoomLevel !== 'country') setZoomLevel('country');
                   else if (altitude <= 0.4 && zoomLevel !== 'city') setZoomLevel('city');
                 }}
-                htmlElementsData={zoomLevel === 'global' ? countriesList : citiesList}
+                labelsData={zoomLevel === 'global' ? countryLabels : []}
+                labelLat={(d: any) => d.lat}
+                labelLng={(d: any) => d.lng}
+                labelText={(d: any) => `${d.flag} ${d.name}`}
+                labelSize={1.2}
+                labelDotRadius={0.2}
+                labelColor={() => 'rgba(255, 255, 255, 0.95)'}
+                labelResolution={2}
+                htmlElementsData={zoomLevel !== 'global' ? focusedCountryCities : []}
                 htmlElement={(d: any) => {
                   const el = document.createElement('div');
                   el.innerHTML = `
                     <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; transform: translate(-50%, -50%); pointer-events: none; transition: all 0.3s;">
-                      <span style="font-size: 11px; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); padding: 2px 6px; border-radius: 6px; color: rgba(255,255,255,0.95); border: 1px solid rgba(255,255,255,0.15); white-space: nowrap; box-shadow: 0 4px 6px rgba(0,0,0,0.3); display: flex; align-items: center; gap: 4px; font-family: serif; letter-spacing: 0.05em;">
-                        ${d.flag ? `<span>${d.flag}</span>` : ''}
+                      <span style="font-size: 11px; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); padding: 2px 6px; border-radius: 6px; color: rgba(255,255,255,0.95); border: 1px solid rgba(255,255,255,0.2); white-space: nowrap; box-shadow: 0 4px 6px rgba(0,0,0,0.3); display: flex; align-items: center; gap: 4px; font-family: serif; letter-spacing: 0.05em;">
                         <span>${d.name}</span>
                       </span>
-                      ${d.isCity ? `<div style="width: 6px; height: 6px; background: #1990e6; border-radius: 50%; margin-top: 4px; box-shadow: 0 0 10px rgba(25,144,230,0.8); border: 1px solid rgba(255,255,255,0.8);"></div>` : ''}
+                      <div style="width: 6px; height: 6px; background: #fbbf24; border-radius: 50%; margin-top: 4px; box-shadow: 0 0 10px rgba(251,191,36,0.8); border: 1px solid rgba(255,255,255,0.8);"></div>
                     </div>
                   `;
                   return el;
