@@ -1,10 +1,17 @@
-import { ArrowLeft, Leaf, Sun, MapPin, Map, ChevronRight, Play, Pen } from 'lucide-react';
+import { ArrowLeft, Leaf, Sun, MapPin, Map, ChevronRight, Play, Pause, Pen } from 'lucide-react';
+import { useState } from 'react';
 
 interface DiaryDetailScreenProps {
   onNavigate: (screen: string) => void;
 }
 
 export default function DiaryDetailScreen({ onNavigate }: DiaryDetailScreenProps) {
+  const [isPlaying, setIsPlaying] = useState(false);
+
+  const togglePlay = () => {
+    setIsPlaying(!isPlaying);
+  };
+
   return (
     <div className="relative mx-auto flex h-full min-h-screen w-full max-w-md flex-col overflow-hidden bg-background-light dark:bg-background-dark shadow-2xl ring-1 ring-black/5">
       <div className="absolute inset-0 z-0 pointer-events-none opacity-40 bg-[url('https://www.transparenttextures.com/patterns/cream-paper.png')] dark:bg-[url('https://www.transparenttextures.com/patterns/black-paper.png')] mix-blend-multiply dark:mix-blend-overlay"></div>
@@ -76,7 +83,11 @@ export default function DiaryDetailScreen({ onNavigate }: DiaryDetailScreenProps
               在一条幽深的小巷里，我寻得了一间隐秘的茶室。烘焙茶叶的清香透过竹制的推拉门飘散出来，引我步入那个时间仿佛凝固的世界。
             </p>
             <p className="indent-8">
-              瓷杯轻碰的脆响，低声细语的交谈，交织成一曲宁静的旋律，这份平和将永远留存在我的记忆深处。
+              瓷杯轻碰的脆响，低声细语的交谈，交织成<span 
+                onClick={togglePlay}
+                className="text-primary font-medium cursor-pointer hover:underline decoration-primary/50 underline-offset-4 transition-all"
+                title="点击播放录音"
+              >一曲宁静的旋律</span>，这份平和将永远留存在我的记忆深处。
             </p>
           </div>
         </div>
@@ -112,17 +123,20 @@ export default function DiaryDetailScreen({ onNavigate }: DiaryDetailScreenProps
         </div>
         
         <div className="mx-6 p-3 rounded-xl bg-white dark:bg-slate-800 shadow-sm ring-1 ring-slate-200 dark:ring-slate-700 flex items-center gap-3">
-          <button className="size-10 flex-none rounded-full bg-primary text-white flex items-center justify-center shadow-md hover:bg-primary/90 transition">
-            <Play className="w-5 h-5" />
+          <button 
+            onClick={togglePlay}
+            className="size-10 flex-none rounded-full bg-primary text-white flex items-center justify-center shadow-md hover:bg-primary/90 transition"
+          >
+            {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
           </button>
           <div className="flex-1">
-            <div className="h-8 flex items-center gap-0.5 justify-start opacity-50">
-              <div className="w-1 h-3 bg-slate-800 dark:bg-slate-200 rounded-full animate-pulse"></div>
-              <div className="w-1 h-5 bg-slate-800 dark:bg-slate-200 rounded-full animate-pulse delay-75"></div>
-              <div className="w-1 h-4 bg-slate-800 dark:bg-slate-200 rounded-full animate-pulse delay-100"></div>
-              <div className="w-1 h-6 bg-slate-800 dark:bg-slate-200 rounded-full animate-pulse delay-150"></div>
-              <div className="w-1 h-3 bg-slate-800 dark:bg-slate-200 rounded-full animate-pulse delay-200"></div>
-              <div className="w-1 h-5 bg-slate-800 dark:bg-slate-200 rounded-full animate-pulse delay-100"></div>
+            <div className={`h-8 flex items-center gap-0.5 justify-start ${isPlaying ? 'opacity-100' : 'opacity-50'} transition-opacity`}>
+              <div className={`w-1 h-3 bg-slate-800 dark:bg-slate-200 rounded-full ${isPlaying ? 'animate-pulse' : ''}`}></div>
+              <div className={`w-1 h-5 bg-slate-800 dark:bg-slate-200 rounded-full ${isPlaying ? 'animate-pulse delay-75' : ''}`}></div>
+              <div className={`w-1 h-4 bg-slate-800 dark:bg-slate-200 rounded-full ${isPlaying ? 'animate-pulse delay-100' : ''}`}></div>
+              <div className={`w-1 h-6 bg-slate-800 dark:bg-slate-200 rounded-full ${isPlaying ? 'animate-pulse delay-150' : ''}`}></div>
+              <div className={`w-1 h-3 bg-slate-800 dark:bg-slate-200 rounded-full ${isPlaying ? 'animate-pulse delay-200' : ''}`}></div>
+              <div className={`w-1 h-5 bg-slate-800 dark:bg-slate-200 rounded-full ${isPlaying ? 'animate-pulse delay-100' : ''}`}></div>
               <div className="w-1 h-4 bg-primary rounded-full"></div>
               <div className="w-1 h-2 bg-slate-300 dark:bg-slate-600 rounded-full"></div>
               <div className="w-1 h-2 bg-slate-300 dark:bg-slate-600 rounded-full"></div>

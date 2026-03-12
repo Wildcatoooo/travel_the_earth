@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
-import { Menu, Share, Search, Plus, Minus, LocateFixed, Map, Book, PieChart, User, X, Calendar, Thermometer, Footprints, Camera, FileEdit, ArrowRight, Battery, BatteryCharging } from 'lucide-react';
+import { Menu, Share, Search, Plus, Minus, LocateFixed, Map, Book, PieChart, User, X, Calendar, Thermometer, Footprints, Camera, FileEdit, ArrowRight, Battery, BatteryCharging, ChevronLeft } from 'lucide-react';
 import Globe from 'react-globe.gl';
 import * as THREE from 'three';
-import { geoCentroid } from 'd3-geo';
+import { geoCentroid, geoBounds } from 'd3-geo';
 
 // Local Database Cache implementation using Browser Cache API
 const fetchWithCache = async (url: string) => {
@@ -47,6 +47,61 @@ const getFlagEmoji = (countryCode: string) => {
   return String.fromCodePoint(...codePoints);
 };
 
+const cityTranslations: Record<string, string> = {
+  'Beijing': '北京', 'Tokyo': '东京', 'Paris': '巴黎', 'London': '伦敦', 'New York': '纽约',
+  'Washington': '华盛顿', 'Moscow': '莫斯科', 'Berlin': '柏林', 'Rome': '罗马', 'Madrid': '马德里',
+  'Seoul': '首尔', 'Bangkok': '曼谷', 'Singapore': '新加坡', 'Kuala Lumpur': '吉隆坡', 'Jakarta': '雅加达',
+  'Manila': '马尼拉', 'Hanoi': '河内', 'New Delhi': '新德里', 'Sydney': '悉尼', 'Melbourne': '墨尔本',
+  'Los Angeles': '洛杉矶', 'Chicago': '芝加哥', 'Toronto': '多伦多', 'Vancouver': '温哥华', 'Dubai': '迪拜',
+  'Istanbul': '伊斯坦布尔', 'Cairo': '开罗', 'Cape Town': '开普敦', 'Rio de Janeiro': '里约热内卢',
+  'Sao Paulo': '圣保罗', 'Buenos Aires': '布宜诺斯艾利斯', 'Mexico City': '墨西哥城', 'Shanghai': '上海',
+  'Guangzhou': '广州', 'Shenzhen': '深圳', 'Hong Kong': '香港', 'Taipei': '台北', 'Macau': '澳门',
+  'Osaka': '大阪', 'Kyoto': '京都', 'San Francisco': '旧金山', 'Seattle': '西雅图', 'Boston': '波士顿',
+  'Las Vegas': '拉斯维加斯', 'Miami': '迈阿密', 'Amsterdam': '阿姆斯特丹', 'Vienna': '维也纳', 'Prague': '布拉格',
+  'Budapest': '布达佩斯', 'Warsaw': '华沙', 'Stockholm': '斯德哥尔摩', 'Oslo': '奥斯陆', 'Copenhagen': '哥本哈根',
+  'Helsinki': '赫尔辛基', 'Athens': '雅典', 'Lisbon': '里斯本', 'Dublin': '都柏林', 'Brussels': '布鲁塞尔',
+  'Geneva': '日内瓦', 'Zurich': '苏黎世', 'Munich': '慕尼黑', 'Frankfurt': '法兰克福', 'Milan': '米兰',
+  'Venice': '威尼斯', 'Florence': '佛罗伦萨', 'Barcelona': '巴塞罗那', 'Mumbai': '孟买', 'Delhi': '德里',
+  'Bangalore': '班加罗尔', 'Kolkata': '加尔各答', 'Chennai': '钦奈', 'Karachi': '卡拉奇', 'Lahore': '拉合尔',
+  'Dhaka': '达卡', 'Colombo': '科伦坡', 'Kathmandu': '加德满都', 'Tehran': '德黑兰', 'Baghdad': '巴格达',
+  'Riyadh': '利雅得', 'Jeddah': '吉达', 'Mecca': '麦加', 'Medina': '麦地那', 'Amman': '安曼', 'Beirut': '贝鲁特',
+  'Damascus': '大马士革', 'Jerusalem': '耶路撒冷', 'Tel Aviv': '特拉维夫', 'Ankara': '安卡拉', 'Johannesburg': '约翰内斯堡',
+  'Pretoria': '比勒陀利亚', 'Nairobi': '内罗毕', 'Addis Ababa': '亚的斯亚贝巴', 'Lagos': '拉各斯', 'Abuja': '阿布贾',
+  'Accra': '阿克拉', 'Dakar': '达喀尔', 'Casablanca': '卡萨布兰卡', 'Algiers': '阿尔及尔', 'Tunis': '突尼斯',
+  'Tripoli': '的黎波里', 'Bogota': '波哥大', 'Lima': '利马', 'Santiago': '圣地亚哥', 'Caracas': '加拉加斯',
+  'Quito': '基多', 'La Paz': '拉巴斯', 'Asuncion': '亚松森', 'Montevideo': '蒙得维的亚', 'Havana': '哈瓦那',
+  'San Juan': '圣胡安', 'Kingston': '金斯敦', 'Port-au-Prince': '太子港', 'Santo Domingo': '圣多明各',
+  'Guatemala City': '危地马拉城', 'San Salvador': '圣萨尔瓦多', 'Tegucigalpa': '特古西加尔巴', 'Managua': '马那瓜',
+  'San Jose': '圣何塞', 'Panama City': '巴拿马城',
+  'Chengdu': '成都', 'Chongqing': '重庆', 'Hangzhou': '杭州', 'Wuhan': '武汉',
+  'Xi\'an': '西安', 'Xian': '西安', 'Suzhou': '苏州', 'Tianjin': '天津', 'Nanjing': '南京',
+  'Changsha': '长沙', 'Zhengzhou': '郑州', 'Dongguan': '东莞', 'Qingdao': '青岛',
+  'Shenyang': '沈阳', 'Ningbo': '宁波', 'Kunming': '昆明', 'Wuxi': '无锡',
+  'Foshan': '佛山', 'Hefei': '合肥', 'Dalian': '大连', 'Fuzhou': '福州',
+  'Xiamen': '厦门', 'Harbin': '哈尔滨', 'Jinan': '济南', 'Wenzhou': '温州',
+  'Nanning': '南宁', 'Changchun': '长春', 'Quanzhou': '泉州', 'Shijiazhuang': '石家庄',
+  'Guiyang': '贵阳', 'Nanchang': '南昌', 'Taiyuan': '太原', 'Yantai': '烟台',
+  'Jiaxing': '嘉兴', 'Nantong': '南通', 'Xuzhou': '徐州', 'Weifang': '潍坊',
+  'Linyi': '临沂', 'Tangshan': '唐山', 'Baoding': '保定', 'Luoyang': '洛阳',
+  'Lanzhou': '兰州', 'Haikou': '海口', 'Sanya': '三亚', 'Hohhot': '呼和浩特',
+  'Urumqi': '乌鲁木齐', 'Yinchuan': '银川', 'Xining': '西宁', 'Lhasa': '拉萨',
+  'Zhongshan': '中山', 'Shantou': '汕头', 'Zhanjiang': '湛江', 'Jiangmen': '江门',
+  'Zhuhai': '珠海', 'Huizhou': '惠州', 'Zibo': '淄博', 'Jining': '济宁',
+  'Taizhou': '台州', 'Shaoxing': '绍兴', 'Jinhua': '金华', 'Huzhou': '湖州',
+  'Zhoushan': '舟山', 'Wuhu': '芜湖', 'Bengbu': '蚌埠', 'Putian': '莆田',
+  'Zhangzhou': '漳州', 'Ganzhou': '赣州', 'Jiujiang': '九江', 'Yichang': '宜昌',
+  'Xiangyang': '襄阳', 'Jingzhou': '荆州', 'Hengyang': '衡阳', 'Yueyang': '岳阳',
+  'Changde': '常德', 'Zhuzhou': '株洲', 'Xiangtan': '湘潭', 'Mianyang': '绵阳',
+  'Nanchong': '南充', 'Yibin': '宜宾', 'Zunyi': '遵义', 'Qujing': '曲靖',
+  'Dali': '大理', 'Lijiang': '丽江', 'Guilin': '桂林', 'Liuzhou': '柳州',
+  'Beihai': '北海', 'Baotou': '包头', 'Ordos': '鄂尔多斯', 'Kashgar': '喀什',
+  'Kowloon': '九龙'
+};
+
+const translateCityName = (name: string) => {
+  return cityTranslations[name] || name;
+};
+
 const VISITED_COUNTRIES = ['CN', 'JP', 'FR'];
 const TRAVEL_ROUTES = [
   { startLat: 39.9042, startLng: 116.4074, endLat: 35.6762, endLng: 139.6503, name: '北京 -> 东京' },
@@ -64,8 +119,8 @@ interface MapScreenProps {
 
 export default function MapScreen({ onNavigate }: MapScreenProps) {
   const [showCapsule, setShowCapsule] = useState(false);
+  const [selectedCity, setSelectedCity] = useState<any>(null);
   const [viewMode, setViewMode] = useState<'2d' | '3d'>('3d');
-  const [zoomLevel, setZoomLevel] = useState<'global' | 'country' | 'city'>('global');
   const [countries, setCountries] = useState({ features: [] });
   const [allCities, setAllCities] = useState<any[]>([]);
   const [countryLabels, setCountryLabels] = useState<any[]>([]);
@@ -73,8 +128,26 @@ export default function MapScreen({ onNavigate }: MapScreenProps) {
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const [powerSaving, setPowerSaving] = useState(false);
   
+  const htmlElements = useMemo(() => {
+    return [...focusedCountryCities, ...VISITED_CITIES.map(c => ({ ...c, isPhoto: true }))];
+  }, [focusedCountryCities]);
+
   const containerRef = useRef<HTMLDivElement>(null);
   const globeRef = useRef<any>();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        if (event.target?.result) {
+          setSelectedCity((prev: any) => ({ ...prev, image: event.target.result as string }));
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   useEffect(() => {
     Promise.all([
@@ -124,39 +197,107 @@ export default function MapScreen({ onNavigate }: MapScreenProps) {
     if (currentAlt > 1.5) {
       // Zoom to country
       globeRef.current.pointOfView({ lat, lng, altitude: 0.8 }, 1000);
-      setZoomLevel('country');
     } else if (currentAlt > 0.5) {
       // Zoom to city
-      globeRef.current.pointOfView({ lat, lng, altitude: 0.2 }, 1000);
-      setZoomLevel('city');
-      setTimeout(() => setShowCapsule(true), 1000);
+      globeRef.current.pointOfView({ lat, lng, altitude: 0.4 }, 1000);
     } else {
       // Reset
       globeRef.current.pointOfView({ lat, lng, altitude: 2.5 }, 1000);
-      setZoomLevel('global');
       setShowCapsule(false);
       setFocusedCountryCities([]);
     }
   };
 
+  const handleCityClick = async (d: any) => {
+    if (globeRef.current) {
+      // Use a slightly higher altitude (0.35) for better texture quality while still zooming into the region,
+      // and a longer duration (1500ms) for a smoother transition.
+      globeRef.current.pointOfView({ lat: d.lat, lng: d.lng, altitude: 0.35 }, 1500);
+    }
+    setSelectedCity(d);
+    setTimeout(() => setShowCapsule(true), 1200);
+    
+    try {
+      const res = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${d.lat}&longitude=${d.lng}&localityLanguage=zh`);
+      const data = await res.json();
+      const betterName = data.city || data.locality || data.principalSubdivision;
+      if (betterName && betterName !== d.name) {
+        setSelectedCity((prev: any) => prev?.lat === d.lat ? { ...prev, name: betterName } : prev);
+      }
+    } catch (e) {
+      console.error('Failed to fetch city name', e);
+    }
+  };
+
   const handlePolygonClick = (polygon: any, event: any, { lat, lng }: any) => {
     const iso = polygon.properties.ISO_A2;
-    const countryCities = allCities.filter(c => c.properties.iso_a2 === iso).map(c => ({
-      lat: c.geometry.coordinates[1],
-      lng: c.geometry.coordinates[0],
-      name: c.properties.name,
-      isCity: true
-    }));
+    const countryCities = allCities
+      .filter(c => c.properties.iso_a2 === iso)
+      .sort((a, b) => b.properties.pop_max - a.properties.pop_max)
+      .slice(0, 15)
+      .map(c => ({
+        lat: c.geometry.coordinates[1],
+        lng: c.geometry.coordinates[0],
+        name: translateCityName(c.properties.name),
+        isCity: true
+      }));
     setFocusedCountryCities(countryCities);
 
     const [cLng, cLat] = geoCentroid(polygon);
-    globeRef.current.pointOfView({ lat: cLat, lng: cLng, altitude: 0.8 }, 1000);
-    setZoomLevel('country');
+    const [[minLng, minLat], [maxLng, maxLat]] = geoBounds(polygon);
+    
+    const lngDiff = maxLng - minLng;
+    const latDiff = maxLat - minLat;
+    const maxDiff = Math.max(lngDiff, latDiff);
+    
+    let altitude = maxDiff / 40;
+    if (altitude < 0.3) altitude = 0.3;
+    if (altitude > 1.5) altitude = 1.5;
+
+    globeRef.current.pointOfView({ lat: cLat, lng: cLng, altitude }, 1000);
   };
 
   return (
     <div className="bg-background-light dark:bg-background-dark text-slate-900 dark:text-slate-100 font-serif min-h-screen flex flex-col overflow-hidden max-w-md mx-auto shadow-2xl relative">
       
+      {/* Dynamic styles for selected city */}
+      <style>
+        {`
+          [data-city-id="${selectedCity?.lat},${selectedCity?.lng}"] .city-marker.is-photo {
+            transform: translate(-50%, -100%) scale(1.3) !important;
+            z-index: 50 !important;
+          }
+          [data-city-id="${selectedCity?.lat},${selectedCity?.lng}"] .city-marker:not(.is-photo) {
+            transform: translate(-50%, -50%) scale(1.3) !important;
+            z-index: 50 !important;
+          }
+          [data-city-id="${selectedCity?.lat},${selectedCity?.lng}"] .city-marker-bg {
+            background: rgba(239, 68, 68, 0.95) !important;
+            border-color: rgba(255,255,255,0.8) !important;
+            color: #fff !important;
+            box-shadow: 0 8px 24px rgba(239, 68, 68, 0.5) !important;
+          }
+          [data-city-id="${selectedCity?.lat},${selectedCity?.lng}"] .city-marker-text {
+            font-size: 14px !important;
+            font-weight: bold !important;
+          }
+          [data-city-id="${selectedCity?.lat},${selectedCity?.lng}"] .city-marker-dot {
+            background: #ef4444 !important;
+            box-shadow: 0 0 16px rgba(239, 68, 68, 0.9) !important;
+            border: 2px solid #fff !important;
+            width: 10px !important;
+            height: 10px !important;
+          }
+          [data-city-id="${selectedCity?.lat},${selectedCity?.lng}"] .city-marker-img {
+            width: 48px !important;
+            height: 48px !important;
+          }
+          [data-city-id="${selectedCity?.lat},${selectedCity?.lng}"] .city-marker-arrow {
+            border-top-color: #ef4444 !important;
+          }
+        `}
+      </style>
+
       {/* Main Map View */}
       <div className="relative flex-1 w-full overflow-hidden bg-slate-200 dark:bg-slate-800" ref={containerRef}>
         {viewMode === '2d' ? (
@@ -203,7 +344,7 @@ export default function MapScreen({ onNavigate }: MapScreenProps) {
                 polygonAltitude={(d: any) => VISITED_COUNTRIES.includes(d.properties.ISO_A2) ? 0.015 : 0.005}
                 polygonCapColor={(d: any) => VISITED_COUNTRIES.includes(d.properties.ISO_A2) ? 'rgba(251, 191, 36, 0.25)' : 'rgba(0, 0, 0, 0)'}
                 polygonSideColor={(d: any) => VISITED_COUNTRIES.includes(d.properties.ISO_A2) ? 'rgba(251, 191, 36, 0.1)' : 'rgba(0, 0, 0, 0)'}
-                polygonStrokeColor={() => '#ff3b30'}
+                polygonStrokeColor={() => 'rgba(255, 255, 255, 0.8)'}
                 showAtmosphere={!powerSaving}
                 atmosphereColor="#38bdf8"
                 atmosphereAltitude={0.15}
@@ -224,51 +365,38 @@ export default function MapScreen({ onNavigate }: MapScreenProps) {
                 ringRepeatPeriod={1000}
                 onPolygonClick={handlePolygonClick}
                 onGlobeClick={handleGlobeClick}
-                onZoom={({ altitude }: any) => {
-                  if (altitude > 1.2 && zoomLevel !== 'global') {
-                    setZoomLevel('global');
-                    setFocusedCountryCities([]);
-                  }
-                  else if (altitude <= 1.2 && altitude > 0.4 && zoomLevel !== 'country') setZoomLevel('country');
-                  else if (altitude <= 0.4 && zoomLevel !== 'city') setZoomLevel('city');
-                }}
-                labelsData={zoomLevel === 'global' ? countryLabels : []}
+                labelsData={countryLabels}
                 labelLat={(d: any) => d.lat}
                 labelLng={(d: any) => d.lng}
-                labelText={(d: any) => `${d.flag} ${d.name}`}
+                labelText={(d: any) => d.name}
                 labelSize={1.2}
                 labelDotRadius={0.2}
                 labelColor={() => 'rgba(255, 255, 255, 0.95)'}
                 labelResolution={2}
-                htmlElementsData={
-                  zoomLevel === 'global' 
-                    ? [...VISITED_CITIES.map(c => ({ ...c, isPhoto: true }))]
-                    : [...focusedCountryCities, ...VISITED_CITIES.map(c => ({ ...c, isPhoto: true }))]
-                }
+                htmlElementsData={htmlElements}
                 htmlElement={(d: any) => {
                   const el = document.createElement('div');
+                  el.setAttribute('data-city-id', `${d.lat},${d.lng}`);
                   if (d.isPhoto) {
                     el.innerHTML = `
-                      <div style="transform: translate(-50%, -100%); pointer-events: auto; cursor: pointer; transition: all 0.3s;" class="hover:scale-110 group">
-                        <div style="background: rgba(255,255,255,0.9); backdrop-filter: blur(4px); padding: 3px; border-radius: 8px; box-shadow: 0 8px 20px rgba(0,0,0,0.4); position: relative; border: 2px solid #fbbf24;">
-                          <img src="${d.image}" style="width: 36px; height: 36px; border-radius: 4px; object-fit: cover;" referrerPolicy="no-referrer" />
-                          <div style="position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 6px solid #fbbf24;"></div>
+                      <div style="transform: translate(-50%, -100%); pointer-events: auto; cursor: pointer; transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);" class="city-marker is-photo hover:scale-110 group z-10">
+                        <div class="city-marker-bg" style="background: rgba(255,255,255,0.9); backdrop-filter: blur(4px); padding: 3px; border-radius: 8px; box-shadow: 0 8px 20px rgba(0,0,0,0.4); position: relative; border: 2px solid #fbbf24; transition: all 0.3s;">
+                          <img src="${d.image}" class="city-marker-img" style="width: 36px; height: 36px; border-radius: 4px; object-fit: cover; transition: all 0.3s;" referrerPolicy="no-referrer" />
+                          <div class="city-marker-arrow" style="position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 6px solid #fbbf24; transition: all 0.3s;"></div>
                         </div>
                       </div>
                     `;
-                    el.onclick = () => {
-                      handleGlobeClick({ lat: d.lat, lng: d.lng });
-                      setTimeout(() => setShowCapsule(true), 1000);
-                    };
+                    el.onclick = () => handleCityClick(d);
                   } else {
                     el.innerHTML = `
-                      <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; transform: translate(-50%, -50%); pointer-events: none; transition: all 0.3s;">
-                        <span style="font-size: 11px; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); padding: 2px 6px; border-radius: 6px; color: rgba(255,255,255,0.95); border: 1px solid rgba(255,255,255,0.2); white-space: nowrap; box-shadow: 0 4px 6px rgba(0,0,0,0.3); display: flex; align-items: center; gap: 4px; font-family: serif; letter-spacing: 0.05em;">
-                          <span>${d.name}</span>
+                      <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; transform: translate(-50%, -50%); pointer-events: auto; cursor: pointer; transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);" class="city-marker hover:scale-110 group z-10">
+                        <span class="city-marker-bg" style="font-size: 11px; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); padding: 2px 6px; border-radius: 6px; color: rgba(255,255,255,0.95); border: 1px solid rgba(255,255,255,0.2); white-space: nowrap; box-shadow: 0 4px 6px rgba(0,0,0,0.3); display: flex; align-items: center; gap: 4px; font-family: serif; letter-spacing: 0.05em; transition: all 0.3s;">
+                          <span class="city-marker-text">${d.name}</span>
                         </span>
-                        <div style="width: 6px; height: 6px; background: #fbbf24; border-radius: 50%; margin-top: 4px; box-shadow: 0 0 10px rgba(251,191,36,0.8); border: 1px solid rgba(255,255,255,0.8);"></div>
+                        <div class="city-marker-dot" style="width: 6px; height: 6px; background: #fbbf24; border-radius: 50%; margin-top: 4px; box-shadow: 0 0 10px rgba(251,191,36,0.8); border: 1px solid rgba(255,255,255,0.8); transition: all 0.3s;"></div>
                       </div>
                     `;
+                    el.onclick = () => handleCityClick(d);
                   }
                   return el;
                 }}
@@ -377,16 +505,16 @@ export default function MapScreen({ onNavigate }: MapScreenProps) {
         <div className="absolute inset-0 z-50 flex flex-col justify-end pointer-events-none p-4 pb-8 h-full bg-gradient-to-t from-black/60 to-transparent">
           <div className="pointer-events-auto w-full max-w-sm mx-auto bg-white/85 dark:bg-[#2C2A29]/85 backdrop-blur-xl rounded-3xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.15)] border border-white/60 dark:border-white/10 overflow-hidden transform transition-all duration-500 ease-out">
             <div className="relative h-48 w-full">
-              <div className="absolute inset-0 bg-cover bg-center" style={{backgroundImage: 'url("https://lh3.googleusercontent.com/aida-public/AB6AXuAjiySU5xf0w-u4bMu4MudixiQU2qhZLtKvXQjgGtDm5-uOWORrNW-0xjRnDYBFtZonLw1A21V3jRjYHgaliRqRiAPgTd2dmMK7nVssVnHLiuKWDO51zy0LacW27qvqwhOU0PMjO_ehjPW4pjoo21ydFXe1hKWdD9h2w-i8Xrhsmi-3lBTXckMmTNNLJdNILO-IwkH96tp-cf2uPk2Zokrc7zaN5vVLLeXWV-OGQaAPsnNoo4tC-7qJrxvTbHzE8-ONVVmcAvTcfg")'}}></div>
+              <div className="absolute inset-0 bg-cover bg-center" style={{backgroundImage: `url("${selectedCity?.image || 'https://lh3.googleusercontent.com/aida-public/AB6AXuAjiySU5xf0w-u4bMu4MudixiQU2qhZLtKvXQjgGtDm5-uOWORrNW-0xjRnDYBFtZonLw1A21V3jRjYHgaliRqRiAPgTd2dmMK7nVssVnHLiuKWDO51zy0LacW27qvqwhOU0PMjO_ehjPW4pjoo21ydFXe1hKWdD9h2w-i8Xrhsmi-3lBTXckMmTNNLJdNILO-IwkH96tp-cf2uPk2Zokrc7zaN5vVLLeXWV-OGQaAPsnNoo4tC-7qJrxvTbHzE8-ONVVmcAvTcfg'}")`}}></div>
               <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
-              <button onClick={() => setShowCapsule(false)} className="absolute top-4 right-4 w-8 h-8 rounded-full bg-black/20 backdrop-blur-sm flex items-center justify-center text-white hover:bg-black/40 transition-colors">
-                <X className="w-5 h-5" />
+              <button onClick={() => setShowCapsule(false)} className="absolute top-4 left-4 w-8 h-8 rounded-full bg-black/20 backdrop-blur-sm flex items-center justify-center text-white hover:bg-black/40 transition-colors z-10">
+                <ChevronLeft className="w-5 h-5" />
               </button>
               <div className="absolute bottom-4 left-6 text-white">
-                <h2 className="text-3xl font-bold tracking-tight font-serif">京都</h2>
+                <h2 className="text-3xl font-bold tracking-tight font-serif">{selectedCity?.name || '未知城市'}</h2>
                 <div className="flex items-center gap-1 text-white/90 text-sm font-medium mt-1 font-serif">
                   <Calendar className="w-4 h-4" />
-                  <span>2023年4月10日 - 4月15日</span>
+                  <span>{selectedCity?.date || '未记录日期'}</span>
                 </div>
               </div>
             </div>
@@ -410,13 +538,14 @@ export default function MapScreen({ onNavigate }: MapScreenProps) {
               </div>
               
               <div className="grid grid-cols-2 gap-4 mb-4">
-                <button onClick={() => onNavigate('footprints')} className="group relative flex flex-col items-center justify-center gap-3 p-4 rounded-2xl bg-[#E8E1D9]/30 dark:bg-white/5 hover:bg-[#D48C84]/10 transition-all duration-300 border border-transparent hover:border-[#D48C84]/20">
+                <input type="file" accept="image/*" ref={fileInputRef} className="hidden" onChange={handleImageUpload} />
+                <button onClick={() => fileInputRef.current?.click()} className="group relative flex flex-col items-center justify-center gap-3 p-4 rounded-2xl bg-[#E8E1D9]/30 dark:bg-white/5 hover:bg-[#D48C84]/10 transition-all duration-300 border border-transparent hover:border-[#D48C84]/20">
                   <div className="w-12 h-12 rounded-full bg-white dark:bg-white/10 shadow-sm flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
                     <Camera className="w-6 h-6 text-[#D48C84]" />
                   </div>
                   <div className="text-center">
                     <span className="block text-slate-800 dark:text-slate-100 font-semibold text-sm font-serif">相册</span>
-                    <span className="block text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-serif">24 个记忆</span>
+                    <span className="block text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-serif">上传照片</span>
                   </div>
                 </button>
                 <button onClick={() => onNavigate('diary')} className="group relative flex flex-col items-center justify-center gap-3 p-4 rounded-2xl bg-[#E8E1D9]/30 dark:bg-white/5 hover:bg-[#D48C84]/10 transition-all duration-300 border border-transparent hover:border-[#D48C84]/20">
