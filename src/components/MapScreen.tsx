@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Menu, Share, Search, Plus, Minus, LocateFixed, Map, Book, PieChart, User, X, Calendar, Thermometer, Footprints, Camera, FileEdit, ArrowRight, Battery, BatteryCharging, ChevronLeft } from 'lucide-react';
 import Globe from 'react-globe.gl';
 import * as THREE from 'three';
@@ -113,6 +113,21 @@ const VISITED_CITIES = [
   { lat: 48.8566, lng: 2.3522, name: '巴黎', date: '2024-02-10', image: 'https://picsum.photos/seed/paris/100/100' }
 ];
 
+const getPolygonAltitude = (d: any) => VISITED_COUNTRIES.includes(d.properties.ISO_A2) ? 0.015 : 0.005;
+const getPolygonCapColor = (d: any) => VISITED_COUNTRIES.includes(d.properties.ISO_A2) ? 'rgba(251, 191, 36, 0.25)' : 'rgba(0, 0, 0, 0)';
+const getPolygonSideColor = (d: any) => VISITED_COUNTRIES.includes(d.properties.ISO_A2) ? 'rgba(251, 191, 36, 0.1)' : 'rgba(0, 0, 0, 0)';
+const getPolygonStrokeColor = () => 'rgba(255, 255, 255, 0.8)';
+const getArcStartLat = (d: any) => d.startLat;
+const getArcStartLng = (d: any) => d.startLng;
+const getArcEndLat = (d: any) => d.endLat;
+const getArcEndLng = (d: any) => d.endLng;
+const getArcColor = () => '#fbbf24';
+const getRingColor = () => '#fbbf24';
+const getLabelLat = (d: any) => d.lat;
+const getLabelLng = (d: any) => d.lng;
+const getLabelText = (d: any) => d.name;
+const getLabelColor = () => 'rgba(255, 255, 255, 0.95)';
+
 interface MapScreenProps {
   onNavigate: (screen: string) => void;
 }
@@ -128,6 +143,9 @@ export default function MapScreen({ onNavigate }: MapScreenProps) {
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const [powerSaving, setPowerSaving] = useState(false);
   
+  const [lodLevel, setLodLevel] = useState<'high' | 'medium' | 'low'>('high');
+  const lodLevelRef = useRef<'high' | 'medium' | 'low'>('high');
+
   const htmlElements = useMemo(() => {
     return [...focusedCountryCities, ...VISITED_CITIES.map(c => ({ ...c, isPhoto: true }))];
   }, [focusedCountryCities]);
@@ -154,10 +172,18 @@ export default function MapScreen({ onNavigate }: MapScreenProps) {
       fetchWithCache('https://raw.githubusercontent.com/vasturiano/react-globe.gl/master/example/datasets/ne_110m_admin_0_countries.geojson'),
       fetchWithCache('https://raw.githubusercontent.com/vasturiano/react-globe.gl/master/example/datasets/ne_110m_populated_places_simple.geojson')
     ]).then(([countriesData, citiesData]) => {
-      setCountries(countriesData);
+      const processedCountries = {
+        ...countriesData,
+        features: countriesData.features.map((feat: any) => {
+          const [[minLng, minLat], [maxLng, maxLat]] = geoBounds(feat);
+          const area = (maxLng - minLng) * (maxLat - minLat);
+          return { ...feat, properties: { ...feat.properties, bboxArea: area } };
+        })
+      };
+      setCountries(processedCountries);
       setAllCities(citiesData.features);
 
-      const labels = countriesData.features.map((feat: any) => {
+      const labels = processedCountries.features.map((feat: any) => {
         const [lng, lat] = geoCentroid(feat);
         const iso = feat.properties.ISO_A2;
         return {
@@ -190,7 +216,7 @@ export default function MapScreen({ onNavigate }: MapScreenProps) {
     }
   }, [viewMode]);
 
-  const handleGlobeClick = ({ lat, lng }: { lat: number, lng: number }) => {
+  const handleGlobeClick = useCallback(({ lat, lng }: { lat: number, lng: number }) => {
     if (!globeRef.current) return;
     const currentAlt = globeRef.current.pointOfView().altitude;
     
@@ -206,9 +232,9 @@ export default function MapScreen({ onNavigate }: MapScreenProps) {
       setShowCapsule(false);
       setFocusedCountryCities([]);
     }
-  };
+  }, []);
 
-  const handleCityClick = async (d: any) => {
+  const handleCityClick = useCallback(async (d: any) => {
     if (globeRef.current) {
       // Use a slightly higher altitude (0.35) for better texture quality while still zooming into the region,
       // and a longer duration (1500ms) for a smoother transition.
@@ -227,9 +253,9 @@ export default function MapScreen({ onNavigate }: MapScreenProps) {
     } catch (e) {
       console.error('Failed to fetch city name', e);
     }
-  };
+  }, []);
 
-  const handlePolygonClick = (polygon: any, event: any, { lat, lng }: any) => {
+  const handlePolygonClick = useCallback((polygon: any, event: any, { lat, lng }: any) => {
     const iso = polygon.properties.ISO_A2;
     const countryCities = allCities
       .filter(c => c.properties.iso_a2 === iso)
@@ -255,14 +281,78 @@ export default function MapScreen({ onNavigate }: MapScreenProps) {
     if (altitude > 1.5) altitude = 1.5;
 
     globeRef.current.pointOfView({ lat: cLat, lng: cLng, altitude }, 1000);
-  };
+  }, [allCities]);
+
+  const handleZoom = useCallback(({ altitude }: { altitude: number }) => {
+    let newLevel: 'high' | 'medium' | 'low' = 'high';
+    if (altitude <= 0.8) newLevel = 'low';
+    else if (altitude <= 1.5) newLevel = 'medium';
+    
+    if (newLevel !== lodLevelRef.current) {
+      lodLevelRef.current = newLevel;
+      setLodLevel(newLevel);
+    }
+  }, []);
+
+  const visiblePolygons = useMemo(() => {
+    if (!countries.features) return [];
+    if (lodLevel === 'high') {
+      return countries.features.filter((f: any) => f.properties.bboxArea > 50 || VISITED_COUNTRIES.includes(f.properties.ISO_A2));
+    } else if (lodLevel === 'medium') {
+      return countries.features.filter((f: any) => f.properties.bboxArea > 5 || VISITED_COUNTRIES.includes(f.properties.ISO_A2));
+    }
+    return countries.features;
+  }, [countries.features, lodLevel]);
+
+  const visibleLabels = useMemo(() => {
+    if (lodLevel === 'high') {
+      return countryLabels.filter((l: any) => VISITED_COUNTRIES.includes(l.iso));
+    }
+    return countryLabels;
+  }, [countryLabels, lodLevel]);
+
+  const htmlElement = useCallback((d: any) => {
+    const el = document.createElement('div');
+    el.setAttribute('data-city-id', `${d.lat},${d.lng}`);
+    if (d.isPhoto) {
+      el.innerHTML = `
+        <div style="transform: translate(-50%, -100%); pointer-events: auto; cursor: pointer; transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);" class="city-marker is-photo hover:scale-110 group z-10">
+          <div class="city-marker-bg" style="background: rgba(255,255,255,0.9); backdrop-filter: blur(4px); padding: 3px; border-radius: 8px; box-shadow: 0 8px 20px rgba(0,0,0,0.4); position: relative; border: 2px solid #fbbf24; transition: all 0.3s;">
+            <img src="${d.image}" class="city-marker-img" style="width: 36px; height: 36px; border-radius: 4px; object-fit: cover; transition: all 0.3s;" referrerPolicy="no-referrer" />
+            <div class="city-marker-arrow" style="position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 6px solid #fbbf24; transition: all 0.3s;"></div>
+          </div>
+        </div>
+      `;
+      el.onclick = () => handleCityClick(d);
+    } else {
+      el.innerHTML = `
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; transform: translate(-50%, -50%); pointer-events: auto; cursor: pointer; transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);" class="city-marker hover:scale-110 group z-10">
+          <span class="city-marker-bg" style="font-size: 11px; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); padding: 2px 6px; border-radius: 6px; color: rgba(255,255,255,0.95); border: 1px solid rgba(255,255,255,0.2); white-space: nowrap; box-shadow: 0 4px 6px rgba(0,0,0,0.3); display: flex; align-items: center; gap: 4px; font-family: serif; letter-spacing: 0.05em; transition: all 0.3s;">
+            <span class="city-marker-text">${d.name}</span>
+          </span>
+          <div class="city-marker-dot" style="width: 6px; height: 6px; background: #fbbf24; border-radius: 50%; margin-top: 4px; box-shadow: 0 0 10px rgba(251,191,36,0.8); border: 1px solid rgba(255,255,255,0.8); transition: all 0.3s;"></div>
+        </div>
+      `;
+      el.onclick = () => handleCityClick(d);
+    }
+    return el;
+  }, [handleCityClick]);
 
   return (
-    <div className="bg-background-light dark:bg-background-dark text-slate-900 dark:text-slate-100 font-serif min-h-screen flex flex-col overflow-hidden max-w-md mx-auto shadow-2xl relative">
+    <div className={`bg-background-light dark:bg-background-dark text-slate-900 dark:text-slate-100 font-serif min-h-screen flex flex-col overflow-hidden max-w-md mx-auto shadow-2xl relative lod-${lodLevel}`}>
       
       {/* Dynamic styles for selected city */}
       <style>
         {`
+          /* LOD Styles */
+          .lod-high .city-marker-text { display: none !important; }
+          .lod-high .city-marker-dot { transform: scale(0.6); }
+          .lod-high .city-marker-img { width: 24px !important; height: 24px !important; }
+          
+          .lod-medium .city-marker-text { font-size: 9px !important; padding: 1px 4px !important; }
+          .lod-medium .city-marker-img { width: 30px !important; height: 30px !important; }
+
+          /* Selected City Styles */
           [data-city-id="${selectedCity?.lat},${selectedCity?.lng}"] .city-marker.is-photo {
             transform: translate(-50%, -100%) scale(1.3) !important;
             z-index: 50 !important;
@@ -340,66 +430,42 @@ export default function MapScreen({ onNavigate }: MapScreenProps) {
                 height={dimensions.height}
                 globeImageUrl="//unpkg.com/three-globe/example/img/earth-blue-marble.jpg"
                 bumpImageUrl={powerSaving ? "" : "//unpkg.com/three-globe/example/img/earth-topology.png"}
-                polygonsData={countries.features}
-                polygonAltitude={(d: any) => VISITED_COUNTRIES.includes(d.properties.ISO_A2) ? 0.015 : 0.005}
-                polygonCapColor={(d: any) => VISITED_COUNTRIES.includes(d.properties.ISO_A2) ? 'rgba(251, 191, 36, 0.25)' : 'rgba(0, 0, 0, 0)'}
-                polygonSideColor={(d: any) => VISITED_COUNTRIES.includes(d.properties.ISO_A2) ? 'rgba(251, 191, 36, 0.1)' : 'rgba(0, 0, 0, 0)'}
-                polygonStrokeColor={() => 'rgba(255, 255, 255, 0.8)'}
+                polygonsData={visiblePolygons}
+                polygonAltitude={getPolygonAltitude}
+                polygonCapColor={getPolygonCapColor}
+                polygonSideColor={getPolygonSideColor}
+                polygonStrokeColor={getPolygonStrokeColor}
                 showAtmosphere={!powerSaving}
                 atmosphereColor="#38bdf8"
                 atmosphereAltitude={0.15}
                 arcsData={TRAVEL_ROUTES}
-                arcStartLat={(d: any) => d.startLat}
-                arcStartLng={(d: any) => d.startLng}
-                arcEndLat={(d: any) => d.endLat}
-                arcEndLng={(d: any) => d.endLng}
-                arcColor={() => '#fbbf24'}
+                arcStartLat={getArcStartLat}
+                arcStartLng={getArcStartLng}
+                arcEndLat={getArcEndLat}
+                arcEndLng={getArcEndLng}
+                arcColor={getArcColor}
                 arcDashLength={0.4}
                 arcDashGap={0.2}
                 arcDashAnimateTime={2000}
                 arcAltitudeAutoScale={0.3}
                 ringsData={VISITED_CITIES}
-                ringColor={() => '#fbbf24'}
+                ringColor={getRingColor}
                 ringMaxRadius={2}
                 ringPropagationSpeed={1}
                 ringRepeatPeriod={1000}
                 onPolygonClick={handlePolygonClick}
                 onGlobeClick={handleGlobeClick}
-                labelsData={countryLabels}
-                labelLat={(d: any) => d.lat}
-                labelLng={(d: any) => d.lng}
-                labelText={(d: any) => d.name}
+                onZoom={handleZoom}
+                labelsData={visibleLabels}
+                labelLat={getLabelLat}
+                labelLng={getLabelLng}
+                labelText={getLabelText}
                 labelSize={1.2}
                 labelDotRadius={0.2}
-                labelColor={() => 'rgba(255, 255, 255, 0.95)'}
+                labelColor={getLabelColor}
                 labelResolution={2}
                 htmlElementsData={htmlElements}
-                htmlElement={(d: any) => {
-                  const el = document.createElement('div');
-                  el.setAttribute('data-city-id', `${d.lat},${d.lng}`);
-                  if (d.isPhoto) {
-                    el.innerHTML = `
-                      <div style="transform: translate(-50%, -100%); pointer-events: auto; cursor: pointer; transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);" class="city-marker is-photo hover:scale-110 group z-10">
-                        <div class="city-marker-bg" style="background: rgba(255,255,255,0.9); backdrop-filter: blur(4px); padding: 3px; border-radius: 8px; box-shadow: 0 8px 20px rgba(0,0,0,0.4); position: relative; border: 2px solid #fbbf24; transition: all 0.3s;">
-                          <img src="${d.image}" class="city-marker-img" style="width: 36px; height: 36px; border-radius: 4px; object-fit: cover; transition: all 0.3s;" referrerPolicy="no-referrer" />
-                          <div class="city-marker-arrow" style="position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 6px solid #fbbf24; transition: all 0.3s;"></div>
-                        </div>
-                      </div>
-                    `;
-                    el.onclick = () => handleCityClick(d);
-                  } else {
-                    el.innerHTML = `
-                      <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; transform: translate(-50%, -50%); pointer-events: auto; cursor: pointer; transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);" class="city-marker hover:scale-110 group z-10">
-                        <span class="city-marker-bg" style="font-size: 11px; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); padding: 2px 6px; border-radius: 6px; color: rgba(255,255,255,0.95); border: 1px solid rgba(255,255,255,0.2); white-space: nowrap; box-shadow: 0 4px 6px rgba(0,0,0,0.3); display: flex; align-items: center; gap: 4px; font-family: serif; letter-spacing: 0.05em; transition: all 0.3s;">
-                          <span class="city-marker-text">${d.name}</span>
-                        </span>
-                        <div class="city-marker-dot" style="width: 6px; height: 6px; background: #fbbf24; border-radius: 50%; margin-top: 4px; box-shadow: 0 0 10px rgba(251,191,36,0.8); border: 1px solid rgba(255,255,255,0.8); transition: all 0.3s;"></div>
-                      </div>
-                    `;
-                    el.onclick = () => handleCityClick(d);
-                  }
-                  return el;
-                }}
+                htmlElement={htmlElement}
                 backgroundColor="rgba(0,0,0,0)"
               />
             )}
